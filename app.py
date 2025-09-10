@@ -1,1128 +1,495 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
-from PIL import Image
-import base64
+import plotly.express as px
+from datetime import datetime, timedelta
+import numpy as np
 
-# Set page configuration
+# 페이지 설정
 st.set_page_config(
-    page_title="Whatfix - Digital Adoption Platform",
-    page_icon="✈️",
+    page_title="시간 예약 현황 관리 시스템",
+    page_icon="📅",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for styling
+# 커스텀 CSS
 st.markdown("""
 <style>
 :root {
-    --primary-color: #f47e35;
-    --secondary-color: #31204a;
-    --accent-color: #f47e35;
-    --background-color: #f8f9fa;
-    --text-color: #212529;
+    --primary-color: #4a90e2;
+    --secondary-color: #2c3e50;
+    --danger-color: #e74c3c;
+    --success-color: #27ae60;
+    --warning-color: #f39c12;
+    --background-color: #f5f5f5;
 }
 
 .stApp {
     background-color: var(--background-color);
-    color: var(--text-color);
 }
 
-.stButton>button {
-    background-color: var(--primary-color);
-    color: white;
+.metric-card {
+    background-color: white;
+    padding: 1.5rem;
     border-radius: 10px;
-    padding: 0.5rem 1rem;
-    transition: all 0.3s;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    margin-bottom: 1rem;
+    text-align: center;
 }
 
-.stButton>button:hover {
-    background-color: var(--secondary-color);
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-    transform: translateY(-2px);
+.reservation-card {
+    background-color: white;
+    padding: 1rem;
+    border-radius: 8px;
+    border-left: 4px solid var(--primary-color);
+    margin-bottom: 0.5rem;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+.excluded-card {
+    background-color: #ffe6e6;
+    border-left-color: var(--danger-color);
+}
+
+.overlap-badge {
+    background-color: var(--danger-color);
+    color: white;
+    padding: 0.2rem 0.5rem;
+    border-radius: 15px;
+    font-size: 0.8rem;
+    font-weight: bold;
+}
+
+.available-badge {
+    background-color: var(--success-color);
+    color: white;
+    padding: 0.2rem 0.5rem;
+    border-radius: 15px;
+    font-size: 0.8rem;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 5px;
+}
+
+.legend-color {
+    width: 20px;
+    height: 20px;
+    border-radius: 3px;
+    border: 1px solid #ccc;
 }
 
 h1, h2, h3 {
     color: var(--secondary-color);
 }
-
-.highlight-card {
-    border: 1px solid #e9ecef;
-    border-radius: 10px;
-    padding: 1.5rem;
-    margin-bottom: 1rem;
-    background-color: white;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
-    transition: all 0.3s;
-}
-
-.highlight-card:hover {
-    box-shadow: 0 10px 15px rgba(0, 0, 0, 0.1);
-    transform: translateY(-5px);
-}
-
-.whatfix-option {
-    border: 2px solid #e9ecef;
-    border-radius: 10px;
-    padding: 1rem;
-    margin: 0.5rem 0;
-    cursor: pointer;
-    transition: all 0.2s;
-}
-
-.whatfix-option:hover {
-    border-color: var(--accent-color);
-    background-color: #f8f9fa;
-}
-
-.whatfix-option.selected {
-    border-color: var(--primary-color);
-    background-color: rgba(244, 126, 53, 0.1);
-}
-
-.feature-container {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 1rem;
-    border-radius: 10px;
-    background-color: white;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
-    margin-bottom: 1rem;
-}
-
-.feature-icon {
-    font-size: 2rem;
-    color: var(--primary-color);
-    margin-bottom: 0.5rem;
-}
-
-.feature-title {
-    font-weight: bold;
-    margin-bottom: 0.5rem;
-}
-
-.award-container {
-    padding: 0.5rem;
-    border-radius: 5px;
-    margin-bottom: 0.5rem;
-    background-color: rgba(244, 126, 53, 0.1);
-}
-
-.customer-logo {
-    height: 60px;
-    margin: 10px;
-    filter: grayscale(100%);
-    transition: all 0.3s;
-}
-
-.customer-logo:hover {
-    filter: grayscale(0%);
-    transform: scale(1.1);
-}
-
-.category-button {
-    padding: 15px;
-    border-radius: 10px;
-    margin: 5px;
-    text-align: center;
-    cursor: pointer;
-    font-weight: bold;
-    transition: all 0.3s;
-}
-
-.category-button:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 10px 15px rgba(0, 0, 0, 0.1);
-}
 </style>
 """, unsafe_allow_html=True)
 
-# App Header
-st.markdown("""
-<div style="text-align: center; padding: 1rem 0;">
-    <h1 style="font-size: 3rem; margin-bottom: 0.5rem; color: #31204a;">
-        <span style="color: #f47e35;">W</span>hatfix
-    </h1>
-    <p style="font-size: 1.2rem; color: #6c757d;">A Leading Digital Adoption Platform (by Yoon)</p>
-</div>
-""", unsafe_allow_html=True)
-
-# Initialize session state variables
-if 'current_page' not in st.session_state:
-    st.session_state.current_page = "Overview"
-
-# Define content for different sections
-overview_content = {
-    "title": "Company Overview",
-    "description": """
-    Founded in 2014, Whatfix is a global B2B SaaS organization that has been recognized as a leader in the digital adoption platforms (DAP) category for the past 4+ years by leading analyst firms like Gartner, Forrester, IDC, and Everest Group.
-    
-    Over the past 3 years, Whatfix has accelerated its pace of innovation and forayed into analytics and application simulation categories to become a multi-product organization.
-    
-    Whatfix has 1000+ employees present across the US, India, UK, Germany, Singapore, Philippines, France, Netherlands, Poland, Ukraine, South Korea, and Australia and is currently used by 700+ customers across the globe, including 80+ Fortune 500 companies.
-    """,
-    "stats": [
-        {"label": "Founded", "value": "2014"},
-        {"label": "Employees", "value": "1000+"},
-        {"label": "Customers", "value": "700+"},
-        {"label": "Fortune 500 Clients", "value": "80+"},
-        {"label": "Global Presence", "value": "12 Countries"}
-    ]
-}
-
-products_content = {
-    "description": """
-    Whatfix empowers enterprises to enhance user productivity and experience, driving accelerated ROI from digital investments. Its comprehensive product suite includes:
-    """,
-    "products": [
-        {
-            "name": "Product Analytics and Enterprise Insights",
-            "description": "Monitor user behavior and digital friction, facilitating data-driven decision-making.",
-            "icon": "📊"
-        },
-        {
-            "name": "Mirror",
-            "description": "Application simulation software for immersive training and product demonstrations, significantly reducing IT infrastructure and manpower costs.",
-            "icon": "🔍"
-        },
-        {
-            "name": "Hub and DAP for Web, Mobile, and Desktop",
-            "description": "Application enablement and adoption, change management, and learning in the flow of work.",
-            "icon": "🖥️"
-        }
-    ],
-    "value_props": """
-    This suite leverages the concept of userization (making technology user-savvy) and GenAI. It enables enterprises to improve cost efficiency and stimulate user productivity and engagement across their application portfolio. As a result, it maximizes the value of their digital investments.
-    """
-}
-
-customers_content = {
-    "description": "Whatfix serves 700+ customers (70% Americas, 20% Europe, 10% RoW) across various industries:",
-    "logos": [
-        "UPS", "Schneider Electric", "Compass Group", "Microsoft", "Aramark", "M&S",
-        "ICICI Bank", "Experian", "ManpowerGroup", "Decathlon", "Cisco", "Beacon",
-        "Caterpillar", "Omron", "Brown & Brown Insurance", "BD", "Avnet"
-    ],
-    "testimonials": [
-        {
-            "text": "Whatfix helped us accelerate our Bullhorn ATS transformation and maximize ROI by providing support in the flow of work for our recruiters.",
-            "company": "ManpowerGroup"
-        },
-        {
-            "text": "With Whatfix's in-app guidance and automation on Guidewire, we reduced errors and accelerated claims processing, leading to higher employee productivity.",
-            "company": "A Leading US Insurance Provider"
-        },
-        {
-            "text": "We connected Smart Tips with our learning management system so that each new user could engage with videos and other useful materials, replacing the unwieldy in-person training.",
-            "company": "Ferring Pharmaceuticals"
-        }
-    ]
-}
-
-achievements_content = {
-    "funding": {
-        "title": "Investors & Funding",
-        "description": "Whatfix has raised a total of ~$140M. Most recently, Whatfix raised a Series D round of $90M led by SoftBank and Sequoia Capital. Other investors include Cisco Investments (also a customer), Eight Roads Ventures (a division of Fidelity Investments), Sequoia Capital India, Dragoneer Investments, F-Prime Capital, Helion Venture Partners, and Stellaris Venture Partners."
-    },
-    "recognition": {
-        "title": "Analyst Recognitions",
-        "items": [
-            "Sole Vendor Named as Customers' Choice: 2024 Gartner® Voice of the Customer for Digital Adoption Platform Report",
-            "Leader in Inaugural IDC MarketScape: Worldwide DAP 2024 Vendor Assessment",
-            "Leader in the inaugural Forrester New Wave™: Digital Adoption Platforms",
-            "Leader (fourth consecutive year) and a Star Performer: Everest Group Digital Adoption Platform (DAP) PEAK Matrix® Assessment 2023",
-            "Recognized DAP vendor: 2023 Gartner® Market Guide for Digital Adoption Platforms",
-            "Leader in Everest Group's first: Workplace Employee Experience Management (WEEM) Platforms PEAK Matrix®"
-        ]
-    },
-    "awards": {
-        "title": "Key Industry Awards",
-        "items": [
-            "Highest-Ranking DAP on 2023 Deloitte Technology Fast 500™ North America for Third Consecutive Year",
-            "Customer Service Department of the Year, Computer Services, Gold Stevie®",
-            "Disruptor Company, Information Technology Software, Gold Globee® Winner Khadim Batti",
-            "Scale-up SaaS Startup of the Year, SaasBoomi Annual 2023",
-            "CEO of the Year, IT Software, Gold Globee® Winner (Khadim Batti)",
-            "CTO of the Year, IT Software, Gold Globee® Winner (Vara kumar)",
-            "Best Innovative or Emerging Tech Solution, Employee Experience by HR Tech Awards",
-            "Hurun India Future Unicorn Award 2023",
-            "Certified as a \"Great Place to Work\" for the year 2022-2023",
-            "Featured on the Nasdaq Tower for ranking as 20th Highest-Rated Private Cloud Computing for Companies To Work For by Battery Ventures, in association with Glassdoor",
-            "Among the highest-rated DAPs in the market - G2 (4.6/5), Gartner Peer Insights (4.5/5), TrustRadius (9.3/10) and CSAT 99.6%"
-        ]
-    }
-}
-
-use_cases_content = {
-    "description": "Whatfix serves several use cases, collectively enhancing users' time to proficiency and application adoption. Some of the key use cases where Whatfix has proven value include:",
-    "categories": [
-        {
-            "name": "Digital Adoption Platform",
-            "items": [
-                "Employee Onboarding & Training",
-                "Application Change Management",
-                "Process Compliance & Governance",
-                "User Support & Self-Help",
-                "Feature Adoption & User Engagement"
-            ]
-        },
-        {
-            "name": "Product Analytics",
-            "items": [
-                "User Behavior Analysis",
-                "Process Optimization",
-                "Friction Point Identification",
-                "Process Compliance Monitoring",
-                "ROI Measurement"
-            ]
-        },
-        {
-            "name": "Mirror",
-            "items": [
-                "Risk-Free Sandbox Environment",
-                "Hands-On Training",
-                "Process Simulation",
-                "User Acceptance Testing",
-                "New Feature Demonstrations"
-            ]
-        }
-    ],
-    "industries": [
-        "Banking & Financial Services",
-        "Insurance",
-        "Healthcare",
-        "Pharmaceuticals",
-        "Retail",
-        "Manufacturing",
-        "Technology",
-        "Telecommunications",
-        "Public Sector",
-        "Staffing & Recruiting"
-    ]
-}
-
-culture_content = {
-    "description": "Whatfix's company culture is built on strong values that drive its success:",
-    "values": [
-        {
-            "name": "Treat people with empathy",
-            "description": "A debate/discussion/discourse is worthless if you are not thinking about the customer. We go above and beyond to add value to customers.",
-            "icon": "❤️"
-        },
-        {
-            "name": "Hustle Mode ON",
-            "description": "We want every interaction to be quick, be it customer queries, legal inquiries, feature releases, or our application performance. Most decisions are reversible. We want to make such decisions faster so that our execution is equally fast.",
-            "icon": "🚀"
-        },
-        {
-            "name": "Ethics and Integrity above all else",
-            "description": "We do not lie, steal, or represent false details to anyone whom we interact with. We portray the correct picture and our customers and partners appreciate us for our honesty.",
-            "icon": "🛡️"
-        },
-        {
-            "name": "Transparent communication",
-            "description": "We mandate direct, open, and honest communication & feedback. Any other way dilutes our focus on customers and our ability to collaborate and compete.",
-            "icon": "💬"
-        },
-        {
-            "name": "Fail fast, Scale fast",
-            "description": "We experiment, fail fast, learn from it, and re-experiment. We are not afraid of failures, We use them as stepping stones. We scale fast once we see the success of the experiment.",
-            "icon": "📈"
-        },
-        {
-            "name": "Do it as you own it",
-            "description": "We do it as we own it, There is nothing outside the job scope. We are accountable for results, not for plan/execution/activities.",
-            "icon": "🏆"
-        }
-    ]
-}
-
-future_content = {
-    "title": "Why Whatfix is the Next Big Thing?",
-    "items": [
-        {
-            "title": "Large Market size",
-            "description": "$25-30 billion is the current addressable market size for Whatfix. The digital revolution demands agility and maximizing the value of every software investment. Employees typically use 12 to 13 applications daily, leading to digital friction as they are expected to be proficient in each one."
-        },
-        {
-            "title": "Validation",
-            "description": "Whatfix has several global 2000 customers, including over 80+ Fortune 500 companies. This includes companies such as Experian, AbleTo, Sophos, Sentry, ICICI Bank, and more."
-        },
-        {
-            "title": "Continuous Growth",
-            "description": "Whatfix has been recognized as one of the fastest-growing SaaS companies worldwide. The company is investing heavily in R&D and has acquired three companies so far to catalyze its product innovation, including Airim in 2019, Nittio Learn in 2021, and Leap in 2022."
-        },
-        {
-            "title": "Innovation with AI",
-            "description": "As a leader in the DAP market, Whatfix is driving innovation by leveraging Generative AI to shape the future of DAPs. The AI integration enhances DAP functionalities, revolutionizing user interactions with technology."
-        }
-    ]
-}
-
-# Define main categories with colors
-categories = [
-    {"name": "Overview", "color": "#f47e35", "icon": "ℹ️"},
-    {"name": "Products", "color": "#4361ee", "icon": "🛠️"},
-    {"name": "Customers", "color": "#3a0ca3", "icon": "👥"},
-    {"name": "Achievements", "color": "#7209b7", "icon": "🏆"},
-    {"name": "Use Cases", "color": "#f72585", "icon": "💼"},
-    {"name": "Culture", "color": "#4cc9f0", "icon": "🌟"},
-    {"name": "Future Vision", "color": "#560bad", "icon": "🔮"},
-    {"name": "Self Introduction", "color": "#1f77b4", "icon": "👋"}
+# 원본 데이터
+DEFAULT_DATA = [
+    {'id': 1, 'time': '18:00'}, {'id': 2, 'time': '15:00'}, {'id': 3, 'time': '07:00'},
+    {'id': 4, 'time': '12:00'}, {'id': 5, 'time': '12:00'}, {'id': 6, 'time': '17:00'},
+    {'id': 7, 'time': '10:00'}, {'id': 8, 'time': '10:00'}, {'id': 9, 'time': '14:00'},
+    {'id': 10, 'time': '12:00'}, {'id': 11, 'time': '10:30'}, {'id': 12, 'time': '15:00'},
+    {'id': 13, 'time': '18:30'}, {'id': 14, 'time': '12:00'}, {'id': 15, 'time': '14:00'},
+    {'id': 16, 'time': '08:00'}, {'id': 17, 'time': '07:00'}, {'id': 18, 'time': '15:00'},
+    {'id': 19, 'time': '16:30'}, {'id': 20, 'time': '10:00'}, {'id': 21, 'time': '06:30'},
+    {'id': 22, 'time': '14:31'}, {'id': 23, 'time': '09:50'}
 ]
 
-# Create top navigation with colored buttons in a grid
-st.markdown("<div style='text-align: center;'>", unsafe_allow_html=True)
-cols = st.columns(len(categories))
-for i, cat in enumerate(categories):
-    with cols[i]:
-        st.markdown(
-            f"""
-            <div 
-                class="category-button" 
-                style="background-color: {cat['color']}; color: white;"
-                onclick="this.classList.toggle('selected'); window.parent.postMessage({{command: 'streamlitMessage', type: 'buttonClicked', value: '{cat['name']}'}}, '*');"
-            >
-                {cat['icon']} {cat['name']}
-            </div>
-            """, 
-            unsafe_allow_html=True
+def time_to_minutes(time_str):
+    """시간 문자열을 분으로 변환"""
+    try:
+        hours, minutes = map(int, time_str.split(':'))
+        return hours * 60 + minutes
+    except:
+        return 0
+
+def minutes_to_time(minutes):
+    """분을 시간 문자열로 변환"""
+    hours = minutes // 60
+    mins = minutes % 60
+    return f"{hours:02d}:{mins:02d}"
+
+def get_valid_data(data, start_hour=8, end_hour=18):
+    """유효한 데이터 필터링 (범위 내 예약만)"""
+    valid_data = []
+    excluded_data = []
+    
+    for item in data:
+        original_minutes = time_to_minutes(item['time'])
+        start_minutes = original_minutes - 30
+        end_minutes = original_minutes + 30
+        
+        # 예약 시간 범위가 운영시간과 겹치는지 확인
+        if end_minutes > start_hour * 60 and start_minutes < end_hour * 60:
+            valid_data.append(item)
+        else:
+            excluded_data.append(item)
+    
+    return valid_data, excluded_data
+
+def calculate_time_slots(data, start_hour=8, end_hour=18):
+    """시간 슬롯별 예약 현황 계산"""
+    valid_data, excluded_data = get_valid_data(data, start_hour, end_hour)
+    
+    # 10분 간격 시간 슬롯 생성
+    time_slots = []
+    for hour in range(start_hour, end_hour):
+        for minute in range(0, 60, 10):
+            slot_minutes = hour * 60 + minute
+            time_slots.append({
+                'time': minutes_to_time(slot_minutes),
+                'minutes': slot_minutes,
+                'count': 0,
+                'reservations': []
+            })
+    
+    # 각 예약에 대해 슬롯 점유 계산
+    for item in valid_data:
+        original_minutes = time_to_minutes(item['time'])
+        start_minutes = original_minutes - 30
+        end_minutes = original_minutes + 30
+        
+        for slot in time_slots:
+            slot_minutes = slot['minutes']
+            if start_minutes <= slot_minutes < end_minutes:
+                slot['count'] += 1
+                slot['reservations'].append(item['id'])
+    
+    return time_slots, valid_data, excluded_data
+
+def create_heatmap(time_slots, valid_data):
+    """히트맵 차트 생성"""
+    # 시간대별 데이터 준비
+    times = [slot['time'] for slot in time_slots]
+    reservation_ids = [item['id'] for item in valid_data]
+    
+    # 2D 배열 생성 (예약 ID x 시간)
+    z_data = []
+    y_labels = []
+    
+    for item in valid_data:
+        row = []
+        original_minutes = time_to_minutes(item['time'])
+        start_minutes = original_minutes - 30
+        end_minutes = original_minutes + 30
+        
+        for slot in time_slots:
+            slot_minutes = slot['minutes']
+            if start_minutes <= slot_minutes < end_minutes:
+                row.append(1)  # 예약됨
+            else:
+                row.append(0)  # 가능
+        
+        z_data.append(row)
+        y_labels.append(f"ID {item['id']} ({item['time']})")
+    
+    # 총합 행 추가
+    total_row = [slot['count'] for slot in time_slots]
+    z_data.append(total_row)
+    y_labels.append("합계")
+    
+    # 히트맵 생성
+    fig = go.Figure(data=go.Heatmap(
+        z=z_data,
+        x=times,
+        y=y_labels,
+        colorscale=[
+            [0, 'white'],
+            [0.5, '#ff6b6b'],
+            [1, '#e74c3c']
+        ],
+        showscale=True,
+        colorbar=dict(
+            title="예약 수",
+            tickmode="linear",
+            tick0=0,
+            dtick=1
+        ),
+        text=[[str(val) if val > 1 else '' for val in row] for row in z_data],
+        texttemplate="%{text}",
+        textfont={"size": 10, "color": "white"},
+        hoverongaps=False,
+        hovertemplate="<b>%{y}</b><br>시간: %{x}<br>예약 수: %{z}<extra></extra>"
+    ))
+    
+    fig.update_layout(
+        title="시간 예약 현황 차트 (±30분 적용)",
+        xaxis_title="시간",
+        yaxis_title="예약 ID",
+        height=600,
+        xaxis=dict(
+            tickangle=45,
+            tickmode='linear',
+            dtick=6  # 1시간 간격으로 표시
+        ),
+        margin=dict(l=100, r=50, t=50, b=100)
+    )
+    
+    return fig
+
+def create_overlap_chart(time_slots):
+    """중복 예약 분포 차트"""
+    overlap_counts = {}
+    for slot in time_slots:
+        count = slot['count']
+        if count > 0:
+            overlap_counts[count] = overlap_counts.get(count, 0) + 1
+    
+    if overlap_counts:
+        counts = list(overlap_counts.keys())
+        frequencies = list(overlap_counts.values())
+        
+        fig = px.bar(
+            x=counts,
+            y=frequencies,
+            labels={'x': '동시 예약 수', 'y': '시간 슬롯 개수'},
+            title='동시 예약 현황 분포',
+            color=counts,
+            color_continuous_scale='Reds'
         )
-        if st.button(cat['name'], key=f"btn_{cat['name']}", help=f"View {cat['name']} information"):
-            st.session_state.current_page = cat['name']
-            st.rerun()
-st.markdown("</div>", unsafe_allow_html=True)
-
-# Display the selected page content
-st.markdown("---")
-
-if st.session_state.current_page == "Overview":
-    st.header(f"📌 {overview_content['title']}")
+        
+        fig.update_traces(
+            text=frequencies,
+            textposition='outside'
+        )
+        
+        fig.update_layout(height=400)
+        return fig
     
-    # Overview layout with two columns
-    col1, col2 = st.columns([3, 1])
+    return None
+
+# 메인 애플리케이션
+def main():
+    st.title("📅 시간 예약 현황 관리 시스템")
+    st.markdown("**±30분 버퍼 시간이 적용된 예약 현황을 시각화합니다**")
     
+    # 사이드바 설정
+    st.sidebar.header("⚙️ 설정")
+    
+    # 운영 시간 설정
+    col1, col2 = st.sidebar.columns(2)
     with col1:
-        st.markdown(f"""
-        <div class="highlight-card">
-            {overview_content['description']}
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Global presence map (simple visualization)
-        st.subheader("Global Presence")
-        df_locations = pd.DataFrame({
-            'Country': ['USA', 'India', 'UK', 'Germany', 'Singapore', 'Australia', 'France', 'Netherlands', 'Poland', 'Ukraine', 'South Korea', 'Philippines'],
-            'Employees': [200, 600, 30, 25, 20, 15, 10, 10, 10, 10, 10, 10],
-            'Latitude': [37.0902, 20.5937, 51.5074, 51.1657, 1.3521, -25.2744, 46.2276, 52.3676, 51.9194, 48.3794, 35.9078, 14.5995],
-            'Longitude': [-95.7129, 78.9629, -0.1278, 10.4515, 103.8198, 133.7751, 2.2137, 4.9041, 19.1451, 31.1656, 127.7669, 120.9842]
-        })
-        
-        fig = px.scatter_geo(
-            df_locations, 
-            lat='Latitude',
-            lon='Longitude',
-            size='Employees',
-            hover_name='Country',
-            color_discrete_sequence=['#f47e35'],
-            title="Whatfix Global Presence",
-            projection="natural earth"
-        )
-        fig.update_layout(
-            height=400,
-            margin=dict(l=0, r=0, t=30, b=0)
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    
+        start_hour = st.selectbox("시작 시간", range(0, 24), index=8)
     with col2:
-        st.subheader("Quick Facts")
-        for stat in overview_content['stats']:
-            st.markdown(f"""
-            <div style="padding: 10px; margin-bottom: 10px; border-radius: 5px; background-color: rgba(244, 126, 53, 0.1); text-align: center;">
-                <h3 style="color: #f47e35; margin: 0;">{stat['value']}</h3>
-                <p style="margin: 0;">{stat['label']}</p>
-            </div>
-            """, unsafe_allow_html=True)
+        end_hour = st.selectbox("종료 시간", range(1, 25), index=18)
     
-    # Company timeline
-    st.subheader("Company Timeline")
-    timeline_data = [
-        {"year": "2014", "event": "Whatfix founded"},
-        {"year": "2015", "event": "Raised seed funding"},
-        {"year": "2016", "event": "First enterprise customers"},
-        {"year": "2017", "event": "Expanded to US market"},
-        {"year": "2019", "event": "Series B funding & Acquired Airim"},
-        {"year": "2021", "event": "Series C funding & Acquired Nittio Learn"},
-        {"year": "2022", "event": "Series D funding & Acquired Leap"},
-        {"year": "2023", "event": "Recognized as Leader by major analysts"},
-        {"year": "2024", "event": "Expanded GenAI capabilities"}
-    ]
+    if start_hour >= end_hour:
+        st.sidebar.error("종료 시간은 시작 시간보다 늦어야 합니다.")
+        return
     
-    cols = st.columns(len(timeline_data))
-    for i, item in enumerate(timeline_data):
-        with cols[i]:
-            st.markdown(f"""
-            <div style="text-align: center; padding: 10px; border-top: 3px solid #f47e35;">
-                <p style="font-weight: bold; margin: 0;">{item['year']}</p>
-                <p style="font-size: 0.8rem;">{item['event']}</p>
-            </div>
-            """, unsafe_allow_html=True)
-
-elif st.session_state.current_page == "Products":
-    st.header("🛠️ Product Suite")
-    
-    st.markdown(f"""
-    <div class="highlight-card">
-        {products_content['description']}
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Product cards in a grid
-    product_cols = st.columns(len(products_content['products']))
-    
-    for i, product in enumerate(products_content['products']):
-        with product_cols[i]:
-            st.markdown(f"""
-            <div class="highlight-card" style="height: 250px; display: flex; flex-direction: column; justify-content: space-between;">
-                <div>
-                    <div style="font-size: 2.5rem; text-align: center; color: #f47e35; margin-bottom: 10px;">{product['icon']}</div>
-                    <h3 style="text-align: center;">{product['name']}</h3>
-                    <p>{product['description']}</p>
-                </div>
-                <div style="text-align: center;">
-                    <button style="background-color: #f47e35; color: white; border: none; padding: 5px 15px; border-radius: 5px; cursor: pointer;">Learn More</button>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-    
-    st.markdown(f"""
-    <div class="highlight-card">
-        <h3>The Whatfix Advantage</h3>
-        {products_content['value_props']}
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Product benefits
-    st.subheader("Key Benefits")
-    benefit_cols = st.columns(3)
-    
-    benefits = [
-        {"title": "Reduce Support Efforts & Training Time", "icon": "⏱️", "description": "Cut down on training time by up to 60% and reduce support tickets by providing in-context guidance."},
-        {"title": "Accelerate Product Adoption", "icon": "📈", "description": "Drive feature usage and adoption with contextual walkthroughs and in-app guidance."},
-        {"title": "Save Costs & Resources", "icon": "💰", "description": "Maximize ROI on software investments by ensuring users can effectively utilize all features."}
-    ]
-    
-    for i, benefit in enumerate(benefits):
-        with benefit_cols[i]:
-            st.markdown(f"""
-            <div class="highlight-card" style="text-align: center;">
-                <div style="font-size: 2rem; margin-bottom: 10px; color: #f47e35;">{benefit['icon']}</div>
-                <h3>{benefit['title']}</h3>
-                <p>{benefit['description']}</p>
-            </div>
-            """, unsafe_allow_html=True)
-    
-    # Comparison with competitors
-    st.subheader("Competitive Advantage")
-    
-    comparison_data = {
-        'Feature': ['No-Code Editor', 'Self-Help Widget', 'Desktop App Support', 'Mobile App Support', 'Multi-Format Content', 'Auto Translation', 'Analytics', 'Sandbox Environment'],
-        'Whatfix': ['✅', '✅', '✅', '✅', '✅', '✅', '✅', '✅'],
-        'Competitor A': ['✅', '❌', '❌', '✅', '❌', '❌', '✅', '❌'],
-        'Competitor B': ['✅', '✅', '❌', '❌', '❌', '✅', '✅', '❌'],
-        'Competitor C': ['✅', '❌', '❌', '✅', '❌', '❌', '❌', '❌']
-    }
-    
-    df_comparison = pd.DataFrame(comparison_data)
-    
-    fig = go.Figure(data=[
-        go.Table(
-            header=dict(
-                values=list(df_comparison.columns),
-                fill_color='#f47e35',
-                align='center',
-                font=dict(color='white', size=12)
-            ),
-            cells=dict(
-                values=[df_comparison[col] for col in df_comparison.columns],
-                fill_color=[['#f8f9fa', '#f8f9fa', '#f8f9fa', '#f8f9fa']] * len(df_comparison),
-                align='center'
-            )
-        )
-    ])
-    
-    fig.update_layout(
-        margin=dict(l=0, r=0, t=0, b=0),
-        height=300
+    # 데이터 입력 방식 선택
+    data_input_method = st.sidebar.radio(
+        "데이터 입력 방식",
+        ["기본 데이터 사용", "CSV 파일 업로드", "수동 입력"]
     )
     
-    st.plotly_chart(fig, use_container_width=True)
-
-elif st.session_state.current_page == "Customers":
-    st.header("👥 Our Customers")
+    data = DEFAULT_DATA.copy()
     
-    st.markdown(f"""
-    <div class="highlight-card">
-        {customers_content['description']}
-    </div>
-    """, unsafe_allow_html=True)
+    if data_input_method == "CSV 파일 업로드":
+        uploaded_file = st.sidebar.file_uploader("CSV 파일을 선택하세요", type="csv")
+        if uploaded_file is not None:
+            try:
+                df = pd.read_csv(uploaded_file)
+                if 'id' in df.columns and 'time' in df.columns:
+                    data = df.to_dict('records')
+                    st.sidebar.success(f"{len(data)}개의 예약 데이터를 로드했습니다.")
+                else:
+                    st.sidebar.error("CSV 파일에 'id'와 'time' 컬럼이 필요합니다.")
+            except Exception as e:
+                st.sidebar.error(f"파일 읽기 오류: {e}")
     
-    # Customer distribution by region
-    st.subheader("Customer Distribution")
+    elif data_input_method == "수동 입력":
+        st.sidebar.subheader("예약 추가")
+        with st.sidebar.form("add_reservation"):
+            new_id = st.number_input("예약 ID", min_value=1, value=len(data)+1)
+            new_time = st.time_input("예약 시간")
+            
+            if st.form_submit_button("예약 추가"):
+                data.append({
+                    'id': new_id,
+                    'time': new_time.strftime("%H:%M")
+                })
+                st.sidebar.success("예약이 추가되었습니다.")
     
-    region_data = {
-        'Region': ['Americas', 'Europe', 'Rest of World'],
-        'Percentage': [70, 20, 10]
-    }
+    # 데이터 처리
+    time_slots, valid_data, excluded_data = calculate_time_slots(data, start_hour, end_hour)
     
-    df_regions = pd.DataFrame(region_data)
-    
-    fig = px.pie(
-        df_regions, 
-        names='Region', 
-        values='Percentage',
-        color_discrete_sequence=['#f47e35', '#4361ee', '#31204a'],
-        hole=0.4
-    )
-    
-    fig.update_layout(
-        margin=dict(l=0, r=0, t=0, b=0),
-        height=300,
-        legend=dict(orientation='h', y=-0.1)
-    )
-    
-    col1, col2 = st.columns([2, 3])
+    # 메트릭 표시
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.plotly_chart(fig, use_container_width=True)
+        st.markdown("""
+        <div class="metric-card">
+            <h3 style="color: #4a90e2; margin: 0;">전체 예약</h3>
+            <h2 style="margin: 0;">{}</h2>
+        </div>
+        """.format(len(data)), unsafe_allow_html=True)
     
     with col2:
         st.markdown("""
-        ### Industry Breakdown
+        <div class="metric-card">
+            <h3 style="color: #27ae60; margin: 0;">유효 예약</h3>
+            <h2 style="margin: 0;">{}</h2>
+        </div>
+        """.format(len(valid_data)), unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown("""
+        <div class="metric-card">
+            <h3 style="color: #e74c3c; margin: 0;">제외된 예약</h3>
+            <h2 style="margin: 0;">{}</h2>
+        </div>
+        """.format(len(excluded_data)), unsafe_allow_html=True)
+    
+    with col4:
+        max_overlap = max([slot['count'] for slot in time_slots]) if time_slots else 0
+        st.markdown("""
+        <div class="metric-card">
+            <h3 style="color: #f39c12; margin: 0;">최대 중복</h3>
+            <h2 style="margin: 0;">{}</h2>
+        </div>
+        """.format(max_overlap), unsafe_allow_html=True)
+    
+    # 탭 생성
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 예약 차트", "📈 중복 분석", "📋 예약 목록", "⚠️ 제외된 예약"])
+    
+    with tab1:
+        st.subheader("시간대별 예약 현황")
         
-        Whatfix serves customers across various industries:
+        # 범례
+        st.markdown("""
+        <div style="display: flex; justify-content: center; gap: 20px; margin-bottom: 20px;">
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: white; border: 2px solid #ccc;"></div>
+                <span>이용 가능</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #ff6b6b;"></div>
+                <span>예약됨</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #e74c3c;"></div>
+                <span>중복 예약</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
         
-        - **Financial Services & Insurance**: 25%
-        - **Technology & Software**: 20%
-        - **Healthcare & Pharma**: 15%
-        - **Manufacturing**: 10%
-        - **Retail & Consumer Goods**: 10%
-        - **Telecommunications**: 5%
-        - **Others**: 15%
-        """)
+        # 히트맵 차트
+        if valid_data:
+            fig = create_heatmap(time_slots, valid_data)
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("표시할 유효한 예약이 없습니다.")
     
-    # Customer logos
-    st.subheader("Some of Our Notable Customers")
-    
-    # Display logos in rows
-    rows = 3
-    logos_per_row = len(customers_content['logos']) // rows + (1 if len(customers_content['logos']) % rows else 0)
-    
-    for r in range(rows):
-        cols = st.columns(logos_per_row)
-        for i in range(logos_per_row):
-            idx = r * logos_per_row + i
-            if idx < len(customers_content['logos']):
-                with cols[i]:
+    with tab2:
+        st.subheader("중복 예약 분석")
+        
+        overlap_fig = create_overlap_chart(time_slots)
+        if overlap_fig:
+            st.plotly_chart(overlap_fig, use_container_width=True)
+            
+            # 중복이 많은 시간대 표시
+            high_overlap_slots = [slot for slot in time_slots if slot['count'] >= 3]
+            if high_overlap_slots:
+                st.warning(f"⚠️ {len(high_overlap_slots)}개 시간대에서 3회 이상 중복 예약이 발생했습니다.")
+                
+                for slot in high_overlap_slots[:5]:  # 상위 5개만 표시
                     st.markdown(f"""
-                    <div style="text-align: center; padding: 10px; background-color: white; border-radius: 5px; margin: 5px; height: 100px; display: flex; align-items: center; justify-content: center;">
-                        <p style="font-weight: bold; color: #31204a;">{customers_content['logos'][idx]}</p>
+                    <div class="reservation-card">
+                        <strong>{slot['time']}</strong>
+                        <span class="overlap-badge">{slot['count']}회 중복</span>
+                        <br><small>예약 ID: {', '.join(map(str, slot['reservations']))}</small>
                     </div>
                     """, unsafe_allow_html=True)
+        else:
+            st.info("중복 예약이 없습니다.")
     
-    # Customer testimonials
-    st.subheader("Customer Success Stories")
-    
-    for i, testimonial in enumerate(customers_content['testimonials']):
-        st.markdown(f"""
-        <div class="highlight-card" style="border-left: 5px solid #f47e35;">
-            <p style="font-style: italic;">"{testimonial['text']}"</p>
-            <p style="text-align: right; font-weight: bold;">— {testimonial['company']}</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # Success metrics
-    st.subheader("Customer Success Metrics")
-    
-    metric_cols = st.columns(4)
-    
-    with metric_cols[0]:
-        st.metric(label="Average Support Ticket Reduction", value="60%", delta="↓")
-    
-    with metric_cols[1]:
-        st.metric(label="Average Training Time Reduction", value="50%", delta="↓")
-    
-    with metric_cols[2]:
-        st.metric(label="Average Productivity Increase", value="37%", delta="↑")
-    
-    with metric_cols[3]:
-        st.metric(label="Customer Satisfaction (CSAT)", value="99.6%", delta="↑")
-
-elif st.session_state.current_page == "Achievements":
-    st.header("🏆 Achievements & Recognition")
-    
-    # Funding information
-    st.subheader(achievements_content["funding"]["title"])
-    
-    st.markdown(f"""
-    <div class="highlight-card">
-        {achievements_content["funding"]["description"]}
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Funding rounds visualization
-    funding_data = {
-        'Round': ['Seed', 'Series A', 'Series B', 'Series C', 'Series D'],
-        'Amount (in millions $)': [3, 12, 35, 90, 140],
-        'Year': ['2015', '2017', '2019', '2021', '2023'] 
-    }
-    
-    df_funding = pd.DataFrame(funding_data)
-    
-    fig = px.bar(
-        df_funding,
-        x='Round',
-        y='Amount (in millions $)',
-        text='Amount (in millions $)',
-        color='Amount (in millions $)',
-        color_continuous_scale=px.colors.sequential.Oranges,
-        labels={'Amount (in millions $)': 'Amount ($ millions)'},
-        title="Whatfix Funding Journey"
-    )
-    
-    fig.update_traces(
-        texttemplate='$%{text}M',
-        textposition='outside'
-    )
-    
-    fig.update_layout(
-        height=400,
-        xaxis_title="Funding Round",
-        yaxis_title="Amount ($ millions)",
-        coloraxis_showscale=False
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
-    
-    # Analyst recognitions
-    st.subheader(achievements_content["recognition"]["title"])
-    
-    for item in achievements_content["recognition"]["items"]:
-        st.markdown(f"""
-        <div class="award-container">
-            <p>✓ {item}</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # Industry awards
-    st.subheader(achievements_content["awards"]["title"])
-    
-    for i, item in enumerate(achievements_content["awards"]["items"]):
-        st.markdown(f"""
-        <div class="award-container" style="background-color: rgba({244 if i % 2 == 0 else 67}, {126 if i % 2 == 0 else 97}, {53 if i % 2 == 0 else 238}, 0.1);">
-            <p>🏆 {item}</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # Patent information
-    st.subheader("Patents & Innovation")
-    
-    st.markdown("""
-    <div class="highlight-card">
-        <p>Whatfix has been granted five technology patents by the U.S. Patent Office and has filed 15 applications. The company is continuously innovating in the digital adoption space, particularly with GenAI integration.</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Acquisitions
-    st.subheader("Strategic Acquisitions")
-    
-    acquisitions = [
-        {"name": "Airim", "year": "2019", "description": "AI-powered personalization engine"},
-        {"name": "Nittio Learn", "year": "2021", "description": "Learning management system"},
-        {"name": "Leap", "year": "2022", "description": "Advanced analytics platform"}
-    ]
-    
-    cols = st.columns(len(acquisitions))
-    
-    for i, acquisition in enumerate(acquisitions):
-        with cols[i]:
-            st.markdown(f"""
-            <div class="highlight-card" style="text-align: center;">
-                <h3>{acquisition["name"]}</h3>
-                <p style="font-weight: bold; color: #f47e35;">Acquired in {acquisition["year"]}</p>
-                <p>{acquisition["description"]}</p>
-            </div>
-            """, unsafe_allow_html=True)
-
-elif st.session_state.current_page == "Use Cases":
-    st.header("💼 Use Cases")
-    
-    st.markdown(f"""
-    <div class="highlight-card">
-        {use_cases_content["description"]}
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Use case categories
-    for category in use_cases_content["categories"]:
-        st.subheader(category["name"])
+    with tab3:
+        st.subheader("유효한 예약 목록")
         
-        items_per_row = 3
-        rows = len(category["items"]) // items_per_row + (1 if len(category["items"]) % items_per_row else 0)
+        if valid_data:
+            for item in valid_data:
+                original_minutes = time_to_minutes(item['time'])
+                start_time = minutes_to_time(original_minutes - 30)
+                end_time = minutes_to_time(original_minutes + 30)
+                
+                st.markdown(f"""
+                <div class="reservation-card">
+                    <strong>예약 {item['id']}번</strong>
+                    <span class="available-badge">유효</span>
+                    <br>
+                    <small>예약 시간: {item['time']}</small>
+                    <br>
+                    <small>실제 점유: {start_time} ~ {end_time}</small>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.info("유효한 예약이 없습니다.")
+    
+    with tab4:
+        st.subheader("범위 밖 제외된 예약")
         
-        for r in range(rows):
-            cols = st.columns(items_per_row)
-            for i in range(items_per_row):
-                idx = r * items_per_row + i
-                if idx < len(category["items"]):
-                    with cols[i]:
-                        st.markdown(f"""
-                        <div class="highlight-card" style="text-align: center; height: 100px; display: flex; align-items: center; justify-content: center;">
-                            <p style="margin: 0;">{category["items"][idx]}</p>
-                        </div>
-                        """, unsafe_allow_html=True)
+        if excluded_data:
+            st.warning(f"{len(excluded_data)}개의 예약이 운영시간 범위를 벗어나 제외되었습니다.")
+            
+            for item in excluded_data:
+                original_minutes = time_to_minutes(item['time'])
+                start_time = minutes_to_time(original_minutes - 30)
+                end_time = minutes_to_time(original_minutes + 30)
+                
+                st.markdown(f"""
+                <div class="reservation-card excluded-card">
+                    <strong>예약 {item['id']}번</strong>
+                    <span style="background-color: #e74c3c; color: white; padding: 0.2rem 0.5rem; border-radius: 15px; font-size: 0.8rem;">제외됨</span>
+                    <br>
+                    <small>예약 시간: {item['time']}</small>
+                    <br>
+                    <small>실제 점유: {start_time} ~ {end_time}</small>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.success("모든 예약이 운영시간 범위 내에 있습니다.")
     
-    # Industry applications
-    st.subheader("Industry Applications")
-    
-    # Create columns for industry sections
-    industry_cols = st.columns(2)
-    
-    # List of industries
-    industries_left = use_cases_content["industries"][:len(use_cases_content["industries"])//2]
-    industries_right = use_cases_content["industries"][len(use_cases_content["industries"])//2:]
-    
-    with industry_cols[0]:
-        for industry in industries_left:
-            st.markdown(f"""
-            <div class="highlight-card" style="margin-bottom: 10px; cursor: pointer;">
-                <h4>{industry}</h4>
-                <p style="font-size: 0.8rem; color: #6c757d;">Click to expand</p>
-            </div>
-            """, unsafe_allow_html=True)
-    
-    with industry_cols[1]:
-        for industry in industries_right:
-            st.markdown(f"""
-            <div class="highlight-card" style="margin-bottom: 10px; cursor: pointer;">
-                <h4>{industry}</h4>
-                <p style="font-size: 0.8rem; color: #6c757d;">Click to expand</p>
-            </div>
-            """, unsafe_allow_html=True)
-    
-    # Featured case studies
-    st.subheader("Featured Case Studies")
-    
-    case_studies = [
-        {
-            "title": "Manpower Group",
-            "description": "Accelerated Bullhorn ATS transformation and maximized ROI by providing support in the flow of work for recruiters.",
-            "results": ["Reduced user onboarding time by 50%", "Decreased ATS errors by 60%", "Integrated SOPs and best practices directly into the workflow"]
-        },
-        {
-            "title": "Insurance Provider",
-            "description": "Implemented in-app guidance and automation on Guidewire to reduce claims processing errors and accelerate processing times.",
-            "results": ["Improved employee productivity by 40%", "Enhanced claims processing governance", "Created better policyholder experience"]
-        },
-        {
-            "title": "Ferring Pharmaceuticals",
-            "description": "Standardized CLM processes and reimagined how employees use the Icertis platform with in-app guidance.",
-            "results": ["4,000 Smart Tips shown to users daily", "96% successful search rate in Self Help", "Reduced new user onboarding time"]
-        }
-    ]
-    
-    for case in case_studies:
-        st.markdown(f"""
-        <div class="highlight-card">
-            <h3>{case["title"]}</h3>
-            <p>{case["description"]}</p>
-            <h4>Results:</h4>
-            <ul>
-                {"".join(f"<li>{result}</li>" for result in case["results"])}
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
-
-elif st.session_state.current_page == "Culture":
-    st.header("🌟 Company Culture")
-    
-    st.markdown(f"""
-    <div class="highlight-card">
-        {culture_content["description"]}
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Display values in a grid
-    values_per_row = 3
-    rows = len(culture_content["values"]) // values_per_row + (1 if len(culture_content["values"]) % values_per_row else 0)
-    
-    for r in range(rows):
-        cols = st.columns(values_per_row)
-        for i in range(values_per_row):
-            idx = r * values_per_row + i
-            if idx < len(culture_content["values"]):
-                value = culture_content["values"][idx]
-                with cols[i]:
-                    st.markdown(f"""
-                    <div class="highlight-card" style="height: 250px; display: flex; flex-direction: column;">
-                        <div style="font-size: 2rem; text-align: center; color: #f47e35; margin-bottom: 10px;">{value["icon"]}</div>
-                        <h3 style="text-align: center;">{value["name"]}</h3>
-                        <p>{value["description"]}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-    
-    # Company work culture and environment
-    st.subheader("Work Culture & Environment")
-    
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        st.markdown("""
-        ### Great Place to Work
-        
-        Whatfix has been certified as a "Great Place to Work" for the year 2022-2023 and was featured on the Nasdaq Tower for ranking as 20th Highest-Rated Private Cloud Computing Companies To Work For by Battery Ventures, in association with Glassdoor.
-        
-        ### Key Culture Highlights
-        
-        - **Global Team**: Diverse workforce across 12 countries
-        - **Continuous Learning**: Regular upskilling and growth opportunities
-        - **Work-Life Balance**: Flexible work arrangements and wellness programs
-        - **Innovation Focus**: 10% of time dedicated to exploring new ideas
-        - **Customer-Centric**: Every decision is made with the customer in mind
-        """)
-    
-    with col2:
-        st.markdown("""
-        ### Employee Recognition
-        
-        - Gold Globee® Winners for CEO and CTO of the Year in IT Software
-        - Featured in multiple "Best Places to Work" lists
-        - Strong employee satisfaction ratings
-        - Transparent communication culture
-        - Regular hackathons and innovation challenges
-        """)
-    
-    # Leadership team
-    st.subheader("Leadership Team")
-    
-    leaders = [
-        {"name": "Khadim Batti", "position": "Co-founder & CEO", "info": "Serial entrepreneur with expertise in product and GTM strategy"},
-        {"name": "Vara Kumar Namburu", "position": "Co-founder & CTO", "info": "Technology visionary with deep expertise in enterprise software"},
-        {"name": "Vispi Daver", "position": "Chief Revenue Officer", "info": "Experienced enterprise sales leader with expertise in global expansion"}
-    ]
-    
-    leader_cols = st.columns(len(leaders))
-    
-    for i, leader in enumerate(leaders):
-        with leader_cols[i]:
-            st.markdown(f"""
-            <div class="highlight-card" style="text-align: center;">
-                <h3>{leader["name"]}</h3>
-                <p style="font-weight: bold; color: #f47e35;">{leader["position"]}</p>
-                <p>{leader["info"]}</p>
-            </div>
-            """, unsafe_allow_html=True)
-
-elif st.session_state.current_page == "Future Vision":
-    st.header("🔮 Future Vision")
-    
-    st.markdown(f"""
-    <div class="highlight-card">
-        <h2>Why Whatfix is the Next Big Thing?</h2>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    for item in future_content["items"]:
-        st.markdown(f"""
-        <div class="highlight-card">
-            <h3>{item["title"]}</h3>
-            <p>{item["description"]}</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # AI future
-    st.subheader("The GenAI-Powered Future of DAPs")
-    
-    st.markdown("""
-    Whatfix is driving innovation by leveraging Generative AI to shape the future of Digital Adoption Platforms. The AI integration enhances DAP functionalities in several ways:
-    """)
-    
-    ai_features = [
-        "AI Read: Quick extraction and summarization of knowledge repositories and user actions",
-        "AI Write: In-app digital scribe for notes, emails, and content creation",
-        "AI Do: Natural language instructions to perform in-app tasks automatically",
-        "Personalized user experiences based on role, behavior, and needs",
-        "Intelligent task recommendations and process optimization"
-    ]
-    
-    for feature in ai_features:
-        st.markdown(f"✓ {feature}")
-    
-    # Roadmap for the future
-    st.subheader("Product Roadmap & Vision")
+    # 데이터 다운로드
+    st.markdown("---")
+    st.subheader("📥 데이터 다운로드")
     
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown("""
-        ### Near-Term Focus (6-12 months)
-        
-        - Enhanced AI integration across the platform
-        - Expanded analytics capabilities for deeper insights
-        - New industry-specific templates and solutions
-        - Improved no-code creator experience
-        - Enhanced mobile capabilities
-        """)
+        if st.button("유효한 예약 데이터 다운로드 (CSV)", type="primary"):
+            df = pd.DataFrame(valid_data)
+            csv = df.to_csv(index=False)
+            st.download_button(
+                label="CSV 파일 다운로드",
+                data=csv,
+                file_name=f"valid_reservations_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv"
+            )
     
     with col2:
-        st.markdown("""
-        ### Long-Term Vision (1-3 years)
-        
-        - Comprehensive technology adoption platform
-        - AI-driven predictive user assistance
-        - Expanded enterprise software ecosystem
-        - Cross-application workflow optimization
-        - True autonomous user experience management
-        """)
-    
-    # Market trends
-    st.subheader("Market Trends Supporting Whatfix's Growth")
-    
-    trends = [
-        {
-            "title": "Digital Transformation Acceleration",
-            "description": "Enterprise digital transformation initiatives continue to accelerate, creating greater need for effective adoption solutions."
-        },
-        {
-            "title": "Skills Gap Widening",
-            "description": "As technology evolves faster than training, organizations need solutions to bridge the growing digital skills gap."
-        },
-        {
-            "title": "AI Revolution",
-            "description": "The AI revolution is transforming enterprise software, creating both opportunities and challenges for user adoption."
-        },
-        {
-            "title": "Remote Work Permanence",
-            "description": "Permanent hybrid/remote work models require better digital enablement and self-service support."
-        }
-    ]
-    
-    trend_cols = st.columns(2)
-    
-    for i, trend in enumerate(trends):
-        with trend_cols[i % 2]:
-            st.markdown(f"""
-            <div class="highlight-card">
-                <h4>{trend["title"]}</h4>
-                <p>{trend["description"]}</p>
-            </div>
-            """, unsafe_allow_html=True)
+        if st.button("시간 슬롯 분석 결과 다운로드 (CSV)"):
+            slots_df = pd.DataFrame([
+                {
+                    'time': slot['time'],
+                    'overlap_count': slot['count'],
+                    'reservation_ids': ', '.join(map(str, slot['reservations'])) if slot['reservations'] else ''
+                }
+                for slot in time_slots if slot['count'] > 0
+            ])
+            csv = slots_df.to_csv(index=False)
+            st.download_button(
+                label="분석 결과 다운로드",
+                data=csv,
+                file_name=f"time_slot_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv"
+            )
 
-elif st.session_state.current_page == "Self Introduction":
-    st.markdown("""
-    <div style="text-align: center; margin-bottom: 20px; padding: 10px; background-color: #f8f9fa; border-radius: 10px;">
-        <h2 style="color: #31204a;">Kyung Yoon Lee</h2>
-        <p style="color: #6c757d;">MBA Candidate at Yale School of Management</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    tab1, tab2, tab3 = st.tabs(["1-Minute Self Introduction", "Why I'm Perfect for Whatfix", "My Resume"])
-
-    with tab1:
-        st.markdown("""
-        <div style="background-color: white; padding: 20px; border-radius: 10px;">
-            <h3 style="color: #f47e35; text-align: center;">Professional Experience Keywords</h3>
-            <div style="display: flex;">
-                <div style="flex:1; margin-right: 10px;">
-                    <h4>Business Strategy Associate</h4>
-                    <ul>
-                        <li>Consulting</li>
-                        <li>Strategy</li>
-                        <li>Salesforce Implementation</li>
-                        <li>US Sales</li>
-                    </ul>
-                </div>
-                <div style="flex:1;">
-                    <h4>Product Manager</h4>
-                    <ul>
-                        <li>US/EU Sales</li>
-                        <li>$350M Project Win</li>
-                        <li>Empathy</li>
-                    </ul>
-                </div>
-            </div>
-            <h4>Human Perspective</h4>
-            <ul>
-                <li>Empowering Dreams of Others</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with tab2:
-        st.markdown("""
-        <div style="background-color: white; padding: 20px; border-radius: 10px;">
-            <h3 style="color: #f47e35; text-align: center;">Why I'm a Perfect Match for Whatfix</h3>
-            <ul>
-                <li><strong>B2B Enterprise Client Management Experience:</strong> Led large-scale projects for Fortune 500 global clients at LG Display (e.g., $350M deal with an automotive OEM), aligning perfectly with Whatfix's enterprise-focused sales model.</li>
-                <li><strong>Cross-functional Collaboration & Solution Selling:</strong> Worked closely with Engineering, Product, and Strategy teams to understand client needs and deliver customized solutions, matching Whatfix's collaborative sales approach.</li>
-                <li><strong>Data-driven Strategic Thinking:</strong> Developed systems for demand forecasting and bid success rate prediction based on internal and external data analysis, directly supporting Whatfix's market research needs.</li>
-                <li><strong>Global and Multicultural Business Experience:</strong> Worked with stakeholders across North America, Europe, and Asia, developing a strong global mindset and cross-cultural communication skills, perfect for Whatfix's international client base.</li>
-                <li><strong>Empathy and Customer-First Mindset:</strong> Proactively relocated to a client's site to support an urgent project timeline, showcasing true customer obsession and dedication to delivering value that matches Whatfix's core values.</li>
-                <li><strong>Learning Agility and Technical Curiosity:</strong> Transitioned from a business strategy background to a client-facing Product Manager role by quickly mastering technical concepts, demonstrating the learning agility needed for Whatfix's SaaS platform.</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with tab3:
-        st.markdown("""
-        <div style="background-color: white; padding: 20px; border-radius: 10px;">
-            <h3 style="color: #f47e35; text-align: center;">My Resume</h3>
-            <p><strong>YALE SCHOOL OF MANAGEMENT</strong>, New Haven, CT</p>
-            <p>Master of Business Administration (MBA), Management Science Concentration (STEM), 2025</p>
-            <ul>
-                <li>Leader of Yale Korean Business Club; active member of Data Analytics Club and Technology Club</li>
-                <li>Recognized for academic excellence in behavioral science, fintech innovation, and team management</li>
-            </ul>
-            <p><strong>CHUNG-ANG UNIVERSITY</strong>, Seoul, Korea</p>
-            <p>Bachelor of Business Administration (BBA), 2018</p>
-            <ul>
-                <li>Leader of volunteer tutoring organization for underprivileged youth and of university paragliding club</li>
-                <li>Graduated with Honors, GPA 3.94/4.5; merit-based scholarship recipient</li>
-            </ul>
-            <p><strong>ANALYSIS GROUP</strong>, Boston, MA - Associate Consultant, 2024</p>
-            <ul>
-                <li>Developed competitive response strategies, conducted research, designed analytical models using SQL and R</li>
-            </ul>
-            <p><strong>LG DISPLAY</strong>, Seoul, Korea - Product Manager, 2019-2023</p>
-            <ul>
-                <li>Drove $60M profit increase by cost analysis</li>
-                <li>Orchestrated cross-functional $350M contract securing</li>
-                <li>Established strategic product roadmap and internal processes</li>
-            </ul>
-            <p>Business Strategy Associate Role</p>
-            <ul>
-                <li>Built demand forecasting models achieving 97% accuracy</li>
-                <li>Created bid-winning probability models boosting success rates</li>
-            </ul>
-            <p><strong>Skills:</strong> Excel, Python, R, Public Speaking, Stakeholder Management</p>
-            <p><strong>Interests:</strong> AI automation, snowboarding, party hosting, tropical travel</p>
-            <p><strong>Military service:</strong> Operations Specialist, Republic of Korea Army (2012–2013)</p>
-            <p><strong>Big Data Analytics Training:</strong> Seoul National University 6-month program</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-# Footer
-st.markdown("---")
-st.markdown("""
-<div style="text-align: center; padding: 20px;">
-    <p>© 2024 Whatfix. All rights reserved.</p>
-    <p style="font-size: 0.8rem; color: #6c757d;">
-        <a href="#" style="color: #f47e35; text-decoration: none; margin: 0 10px;">About</a> •
-        <a href="#" style="color: #f47e35; text-decoration: none; margin: 0 10px;">Contact</a> •
-        <a href="#" style="color: #f47e35; text-decoration: none; margin: 0 10px;">Privacy Policy</a> •
-        <a href="#" style="color: #f47e35; text-decoration: none; margin: 0 10px;">Terms of Service</a>
-    </p>
-</div>
-""", unsafe_allow_html=True)
+if __name__ == "__main__":
+    main()
