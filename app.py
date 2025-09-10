@@ -47,11 +47,6 @@ st.markdown("""
     box-shadow: 0 2px 5px rgba(0,0,0,0.1);
 }
 
-.excluded-card {
-    background-color: #ffe6e6;
-    border-left-color: var(--danger-color);
-}
-
 .overlap-badge {
     background-color: var(--danger-color);
     color: white;
@@ -115,28 +110,8 @@ def minutes_to_time(minutes):
     mins = minutes % 60
     return f"{hours:02d}:{mins:02d}"
 
-def get_valid_data(data, start_hour=8, end_hour=18):
-    """Filter valid data (only reservations within operating hours)"""
-    valid_data = []
-    excluded_data = []
-    
-    for item in data:
-        original_minutes = time_to_minutes(item['time'])
-        start_minutes = original_minutes - 30
-        end_minutes = original_minutes + 30
-        
-        # Check if reservation time range overlaps with operating hours
-        if end_minutes > start_hour * 60 and start_minutes < end_hour * 60:
-            valid_data.append(item)
-        else:
-            excluded_data.append(item)
-    
-    return valid_data, excluded_data
-
 def calculate_time_slots(data, start_hour=8, end_hour=18):
     """Calculate reservation status by time slots"""
-    valid_data, excluded_data = get_valid_data(data, start_hour, end_hour)
-    
     # Create 10-minute interval time slots
     time_slots = []
     for hour in range(start_hour, end_hour):
@@ -150,7 +125,7 @@ def calculate_time_slots(data, start_hour=8, end_hour=18):
             })
     
     # Calculate slot occupancy for each reservation
-    for item in valid_data:
+    for item in data:
         original_minutes = time_to_minutes(item['time'])
         start_minutes = original_minutes - 30
         end_minutes = original_minutes + 30
@@ -161,19 +136,19 @@ def calculate_time_slots(data, start_hour=8, end_hour=18):
                 slot['count'] += 1
                 slot['reservations'].append(item['id'])
     
-    return time_slots, valid_data, excluded_data
+    return time_slots, data
 
-def create_heatmap(time_slots, valid_data):
+def create_heatmap(time_slots, data):
     """Create heatmap chart"""
     # Prepare time-based data
     times = [slot['time'] for slot in time_slots]
-    reservation_ids = [item['id'] for item in valid_data]
+    reservation_ids = [item['id'] for item in data]
     
     # Create 2D array (Reservation ID x Time)
     z_data = []
     y_labels = []
     
-    for item in valid_data:
+    for item in data:
         row = []
         original_minutes = time_to_minutes(item['time'])
         start_minutes = original_minutes - 30
@@ -318,10 +293,10 @@ def main():
                 st.sidebar.success("Reservation added.")
     
     # Data processing
-    time_slots, valid_data, excluded_data = calculate_time_slots(data, start_hour, end_hour)
+    time_slots, reservation_data = calculate_time_slots(data, start_hour, end_hour)
     
     # Display metrics
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
     
     with col1:
         st.markdown("""
@@ -332,22 +307,6 @@ def main():
         """.format(len(data)), unsafe_allow_html=True)
     
     with col2:
-        st.markdown("""
-        <div class="metric-card">
-            <h3 style="color: #27ae60; margin: 0;">Valid Reservations</h3>
-            <h2 style="margin: 0;">{}</h2>
-        </div>
-        """.format(len(valid_data)), unsafe_allow_html=True)
-    
-    with col3:
-        st.markdown("""
-        <div class="metric-card">
-            <h3 style="color: #e74c3c; margin: 0;">Excluded Reservations</h3>
-            <h2 style="margin: 0;">{}</h2>
-        </div>
-        """.format(len(excluded_data)), unsafe_allow_html=True)
-    
-    with col4:
         max_overlap = max([slot['count'] for slot in time_slots]) if time_slots else 0
         st.markdown("""
         <div class="metric-card">
@@ -356,8 +315,17 @@ def main():
         </div>
         """.format(max_overlap), unsafe_allow_html=True)
     
+    with col3:
+        total_occupied_slots = sum(1 for slot in time_slots if slot['count'] > 0)
+        st.markdown("""
+        <div class="metric-card">
+            <h3 style="color: #27ae60; margin: 0;">Occupied Time Slots</h3>
+            <h2 style="margin: 0;">{}</h2>
+        </div>
+        """.format(total_occupied_slots), unsafe_allow_html=True)
+    
     # Create tabs
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 Reservation Chart", "📈 Overlap Analysis", "📋 Reservation List", "⚠️ Excluded Reservations"])
+    tab1, tab2, tab3 = st.tabs(["📊 Reservation Chart", "📈 Overlap Analysis", "📋 Reservation List"])
     
     with tab1:
         st.subheader("Reservation Status by Time Slot")
@@ -381,11 +349,11 @@ def main():
         """, unsafe_allow_html=True)
         
         # Heatmap chart
-        if valid_data:
-            fig = create_heatmap(time_slots, valid_data)
+        if reservation_data:
+            fig = create_heatmap(time_slots, reservation_data)
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info("No valid reservations to display.")
+            st.info("No reservations to display.")
     
     with tab2:
         st.subheader("Overlap Reservation Analysis")
@@ -411,10 +379,10 @@ def main():
             st.info("No overlapping reservations.")
     
     with tab3:
-        st.subheader("Valid Reservation List")
+        st.subheader("All Reservations")
         
-        if valid_data:
-            for item in valid_data:
+        if reservation_data:
+            for item in reservation_data:
                 original_minutes = time_to_minutes(item['time'])
                 start_time = minutes_to_time(original_minutes - 30)
                 end_time = minutes_to_time(original_minutes + 30)
@@ -422,7 +390,7 @@ def main():
                 st.markdown(f"""
                 <div class="reservation-card">
                     <strong>Reservation #{item['id']}</strong>
-                    <span class="available-badge">Valid</span>
+                    <span class="available-badge">Active</span>
                     <br>
                     <small>Reservation Time: {item['time']}</small>
                     <br>
@@ -430,31 +398,7 @@ def main():
                 </div>
                 """, unsafe_allow_html=True)
         else:
-            st.info("No valid reservations.")
-    
-    with tab4:
-        st.subheader("Excluded Reservations (Outside Range)")
-        
-        if excluded_data:
-            st.warning(f"{len(excluded_data)} reservations were excluded for being outside operating hours.")
-            
-            for item in excluded_data:
-                original_minutes = time_to_minutes(item['time'])
-                start_time = minutes_to_time(original_minutes - 30)
-                end_time = minutes_to_time(original_minutes + 30)
-                
-                st.markdown(f"""
-                <div class="reservation-card excluded-card">
-                    <strong>Reservation #{item['id']}</strong>
-                    <span style="background-color: #e74c3c; color: white; padding: 0.2rem 0.5rem; border-radius: 15px; font-size: 0.8rem;">Excluded</span>
-                    <br>
-                    <small>Reservation Time: {item['time']}</small>
-                    <br>
-                    <small>Actual Occupancy: {start_time} ~ {end_time}</small>
-                </div>
-                """, unsafe_allow_html=True)
-        else:
-            st.success("All reservations are within operating hours.")
+            st.info("No reservations.")
     
     # Data download
     st.markdown("---")
@@ -463,13 +407,13 @@ def main():
     col1, col2 = st.columns(2)
     
     with col1:
-        if st.button("Download Valid Reservations (CSV)", type="primary"):
-            df = pd.DataFrame(valid_data)
+        if st.button("Download Reservations (CSV)", type="primary"):
+            df = pd.DataFrame(reservation_data)
             csv = df.to_csv(index=False)
             st.download_button(
                 label="Download CSV File",
                 data=csv,
-                file_name=f"valid_reservations_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                file_name=f"reservations_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv"
             )
     
