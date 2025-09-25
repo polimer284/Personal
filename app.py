@@ -4,6 +4,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime, timedelta
 import numpy as np
+import random
 
 # Page configuration
 st.set_page_config(
@@ -64,6 +65,15 @@ st.markdown("""
     font-size: 0.8rem;
 }
 
+.location-badge {
+    background-color: var(--primary-color);
+    color: white;
+    padding: 0.2rem 0.5rem;
+    border-radius: 15px;
+    font-size: 0.8rem;
+    margin-right: 0.5rem;
+}
+
 .legend-item {
     display: flex;
     align-items: center;
@@ -84,17 +94,28 @@ h1, h2, h3 {
 </style>
 """, unsafe_allow_html=True)
 
-# Original data
-DEFAULT_DATA = [
-    {'id': 1, 'time': '18:00'}, {'id': 2, 'time': '15:00'}, {'id': 3, 'time': '07:00'},
-    {'id': 4, 'time': '12:00'}, {'id': 5, 'time': '12:00'}, {'id': 6, 'time': '17:00'},
-    {'id': 7, 'time': '10:00'}, {'id': 8, 'time': '10:00'}, {'id': 9, 'time': '14:00'},
-    {'id': 10, 'time': '12:00'}, {'id': 11, 'time': '10:30'}, {'id': 12, 'time': '15:00'},
-    {'id': 13, 'time': '18:30'}, {'id': 14, 'time': '12:00'}, {'id': 15, 'time': '14:00'},
-    {'id': 16, 'time': '08:00'}, {'id': 17, 'time': '07:00'}, {'id': 18, 'time': '15:00'},
-    {'id': 19, 'time': '16:30'}, {'id': 20, 'time': '10:00'}, {'id': 21, 'time': '06:30'},
-    {'id': 22, 'time': '14:31'}, {'id': 23, 'time': '09:50'}
-]
+# Updated sample data with location, id, time structure
+def generate_sample_data():
+    locations = ["Sample 1", "Sample 2", "Sample 3", "Sample 4", "Sample 5"]
+    sample_times = [
+        "18:00", "15:00", "07:00", "12:00", "12:00", "17:00", "10:00", "10:00", 
+        "14:00", "12:00", "10:30", "15:00", "18:30", "12:00", "14:00", "08:00",
+        "07:00", "15:00", "16:30", "10:00", "06:30", "14:31", "09:50", "21:30",
+        "21:00", "22:00", "20:30", "19:00", "16:00", "11:00", "13:30", "09:00",
+        "20:00", "22:30", "11:30", "13:00", "16:45", "08:30", "19:30", "17:45"
+    ]
+    
+    data = []
+    for i in range(40):  # Generate 40 sample records
+        data.append({
+            'location': random.choice(locations),
+            'id': int(4.2e8 + random.randint(0, int(2e9))),  # Similar to your ID range
+            'time': sample_times[i % len(sample_times)]
+        })
+    
+    return data
+
+DEFAULT_DATA = generate_sample_data()
 
 def time_to_minutes(time_str):
     """Convert time string to minutes"""
@@ -110,8 +131,16 @@ def minutes_to_time(minutes):
     mins = minutes % 60
     return f"{hours:02d}:{mins:02d}"
 
-def calculate_time_slots(data, start_hour=8, end_hour=18):
+def sort_reservations_by_time(data):
+    """Sort reservations by time"""
+    return sorted(data, key=lambda x: time_to_minutes(x['time']))
+
+def calculate_time_slots(data, start_hour=8, end_hour=18, selected_location=None):
     """Calculate reservation status by time slots"""
+    # Filter by location if selected
+    if selected_location and selected_location != "All Locations":
+        data = [item for item in data if item['location'] == selected_location]
+    
     # Create 10-minute interval time slots
     time_slots = []
     for hour in range(start_hour, end_hour):
@@ -124,56 +153,83 @@ def calculate_time_slots(data, start_hour=8, end_hour=18):
                 'reservations': []
             })
     
-    # Calculate slot occupancy for each reservation
+    # Filter reservations that have any overlap with the time range
+    start_minutes = start_hour * 60
+    end_minutes = end_hour * 60
+    
+    filtered_data = []
     for item in data:
+        reservation_minutes = time_to_minutes(item['time'])
+        reservation_start = reservation_minutes - 30  # 30분 전부터
+        reservation_end = reservation_minutes + 30    # 30분 후까지
+        
+        # 예약 시간대가 설정된 시간 범위와 겹치는지 확인
+        if reservation_end > start_minutes and reservation_start < end_minutes:
+            filtered_data.append(item)
+    
+    # Calculate slot occupancy for filtered reservations
+    for item in filtered_data:
         original_minutes = time_to_minutes(item['time'])
-        start_minutes = original_minutes - 30
-        end_minutes = original_minutes + 30
+        start_minutes_res = original_minutes - 30
+        end_minutes_res = original_minutes + 30
         
         for slot in time_slots:
             slot_minutes = slot['minutes']
-            if start_minutes <= slot_minutes < end_minutes:
+            if start_minutes_res <= slot_minutes < end_minutes_res:
                 slot['count'] += 1
-                slot['reservations'].append(item['id'])
+                slot['reservations'].append({
+                    'id': item['id'],
+                    'location': item['location'],
+                    'time': item['time']
+                })
     
-    return time_slots, data
+    return time_slots, filtered_data
 
-def create_heatmap(time_slots, data):
-    """Create heatmap chart"""
+def create_heatmap(time_slots, data, selected_location=None):
+    """Create heatmap chart grouped by location with expandable details"""
     # Prepare time-based data
     times = [slot['time'] for slot in time_slots]
-    reservation_ids = [item['id'] for item in data]
     
-    # Create 2D array (Reservation ID x Time)
-    z_data = []
-    y_labels = []
-    
+    # Group data by location
+    location_groups = {}
     for item in data:
-        row = []
-        original_minutes = time_to_minutes(item['time'])
-        start_minutes = original_minutes - 30
-        end_minutes = original_minutes + 30
-        
-        for slot in time_slots:
-            slot_minutes = slot['minutes']
-            if start_minutes <= slot_minutes < end_minutes:
-                row.append(1)  # Reserved
-            else:
-                row.append(0)  # Available
-        
-        z_data.append(row)
-        y_labels.append(f"ID {item['id']} ({item['time']})")
+        location = item['location']
+        if location not in location_groups:
+            location_groups[location] = []
+        location_groups[location].append(item)
     
-    # Add total row
-    total_row = [slot['count'] for slot in time_slots]
-    z_data.append(total_row)
-    y_labels.append("Total")
+    # Sort locations alphabetically
+    sorted_locations = sorted(location_groups.keys())
     
-    # Create heatmap
-    fig = go.Figure(data=go.Heatmap(
-        z=z_data,
+    # Create summary heatmap (only totals)
+    z_data_summary = []
+    y_labels_summary = []
+    
+    # Process each location - only totals
+    for location in sorted_locations:
+        location_items = location_groups[location]
+        
+        # Calculate location total row
+        location_total_row = [0] * len(time_slots)
+        for item in location_items:
+            original_minutes = time_to_minutes(item['time'])
+            start_minutes = original_minutes - 30
+            end_minutes = original_minutes + 30
+            
+            for i, slot in enumerate(time_slots):
+                slot_minutes = slot['minutes']
+                if start_minutes <= slot_minutes < end_minutes:
+                    location_total_row[i] += 1
+        
+        # Add location total row
+        z_data_summary.append(location_total_row)
+        y_labels_summary.append(f"🏢 {location} ({len(location_items)} reservations)")
+    
+    # Create summary heatmap
+    fig_summary = go.Figure(data=go.Heatmap(
+        z=z_data_summary,
         x=times,
-        y=y_labels,
+        y=y_labels_summary,
         colorscale=[
             [0, 'white'],
             [0.5, '#ff6b6b'],
@@ -186,27 +242,151 @@ def create_heatmap(time_slots, data):
             tick0=0,
             dtick=1
         ),
-        text=[[str(val) if val > 1 else '' for val in row] for row in z_data],
+        text=[[str(val) if val > 0 else '' for val in row] for row in z_data_summary],
         texttemplate="%{text}",
-        textfont={"size": 10, "color": "white"},
+        textfont={"size": 12, "color": "white"},
         hoverongaps=False,
         hovertemplate="<b>%{y}</b><br>Time: %{x}<br>Reservations: %{z}<extra></extra>"
     ))
     
-    fig.update_layout(
-        title="Time Reservation Status Chart (±30 minutes applied)",
+    # Add vertical dotted lines at 30-minute intervals
+    for i in range(0, len(times), 3):  # Every 3rd time slot (30 minutes)
+        x_pos = i
+        
+        # Add vertical line using shape
+        fig_summary.add_shape(
+            type="line",
+            x0=x_pos,
+            x1=x_pos,
+            y0=-0.5,
+            y1=len(y_labels_summary) - 0.5,
+            line=dict(color="rgba(128,128,128,0.3)", width=0.5, dash="dash"),
+            xref="x",
+            yref="y"
+        )
+    
+    title = f"Time Reservation Summary by Location (±30 minutes applied)"
+    if selected_location and selected_location != "All Locations":
+        title += f" - {selected_location}"
+    
+    fig_summary.update_layout(
+        title=title,
         xaxis_title="Time",
-        yaxis_title="Reservation ID",
-        height=600,
+        yaxis_title="Locations",
+        height=max(400, len(sorted_locations) * 50 + 100),
         xaxis=dict(
             tickangle=45,
             tickmode='linear',
-            dtick=6  # Display at 1-hour intervals
+            dtick=3  # Display at 30-minute intervals
         ),
-        margin=dict(l=100, r=50, t=50, b=100)
+        yaxis=dict(
+            tickfont=dict(size=11)
+        ),
+        margin=dict(l=250, r=50, t=50, b=100),
+        showlegend=False
     )
     
-    return fig
+    return fig_summary, location_groups
+
+def create_location_detail_heatmap(location, location_items, time_slots):
+    """Create detailed heatmap for a specific location"""
+    # Prepare time-based data
+    times = [slot['time'] for slot in time_slots]
+    
+    # Sort items by time within location (earliest first)
+    location_items_sorted = sort_reservations_by_time(location_items)
+    
+    # Create detailed heatmap data - TOTAL FIRST, then reversed individual items
+    z_data_detail = []
+    y_labels_detail = []
+    
+    # Calculate location total row (same as summary)
+    location_total_row = [0] * len(time_slots)
+    for item in location_items:
+        original_minutes = time_to_minutes(item['time'])
+        start_minutes = original_minutes - 30
+        end_minutes = original_minutes + 30
+        
+        for i, slot in enumerate(time_slots):
+            slot_minutes = slot['minutes']
+            if start_minutes <= slot_minutes < end_minutes:
+                location_total_row[i] += 1
+    
+    # Add individual reservation rows first (reversed so latest shows first)
+    for item in reversed(location_items_sorted):
+        row = []
+        original_minutes = time_to_minutes(item['time'])
+        start_minutes = original_minutes - 30
+        end_minutes = original_minutes + 30
+        
+        for slot in time_slots:
+            slot_minutes = slot['minutes']
+            if start_minutes <= slot_minutes < end_minutes:
+                row.append(1)  # Reserved
+            else:
+                row.append(0)  # Available
+        
+        z_data_detail.append(row)
+        y_labels_detail.append(f"ID {item['id']} ({item['time']})")
+    
+    # Add TOTAL row at the END (so it appears at TOP of chart)
+    z_data_detail.append(location_total_row)
+    y_labels_detail.append(f"📊 TOTAL ({len(location_items)} reservations)")
+    
+    # Create detailed heatmap
+    fig_detail = go.Figure(data=go.Heatmap(
+        z=z_data_detail,
+        x=times,
+        y=y_labels_detail,
+        colorscale=[
+            [0, 'white'],
+            [0.5, '#ff6b6b'],
+            [1, '#e74c3c']
+        ],
+        showscale=False,  # Remove color bar (legend)
+        text=[[''] * len(row) for row in z_data_detail[:-1]] + [  # No text for individual rows
+            [str(val) if val > 0 else '' for val in z_data_detail[-1]]  # Numbers for TOTAL row
+        ],
+        texttemplate="%{text}",
+        textfont={"size": 12, "color": "white"},
+        hoverongaps=False,
+        hovertemplate="<b>%{y}</b><br>Time: %{x}<br>Value: %{z}<extra></extra>"
+    ))
+    
+    # Add vertical dotted lines at 30-minute intervals
+    for i in range(0, len(times), 3):  # Every 3rd time slot (30 minutes)
+        x_pos = i
+        
+        # Add vertical line using shape
+        fig_detail.add_shape(
+            type="line",
+            x0=x_pos,
+            x1=x_pos,
+            y0=-0.5,
+            y1=len(y_labels_detail) - 0.5,
+            line=dict(color="rgba(128,128,128,0.3)", width=0.5, dash="dash"),
+            xref="x",
+            yref="y"
+        )
+    
+    fig_detail.update_layout(
+        title=f"Detailed View: {location}",
+        xaxis_title="Time",
+        yaxis_title="Reservation Details",
+        height=max(300, (len(location_items_sorted) + 1) * 25 + 100),  # +1 for total row
+        xaxis=dict(
+            tickangle=45,
+            tickmode='linear',
+            dtick=3  # 30-minute intervals
+        ),
+        yaxis=dict(
+            tickfont=dict(size=10)
+        ),
+        margin=dict(l=200, r=50, t=50, b=80),
+        showlegend=False
+    )
+    
+    return fig_detail
 
 def create_overlap_chart(time_slots):
     """Overlap reservation distribution chart"""
@@ -239,6 +419,28 @@ def create_overlap_chart(time_slots):
     
     return None
 
+def create_location_summary(data):
+    """Create location-wise summary"""
+    location_counts = {}
+    for item in data:
+        location = item['location']
+        location_counts[location] = location_counts.get(location, 0) + 1
+    
+    if location_counts:
+        locations = list(location_counts.keys())
+        counts = list(location_counts.values())
+        
+        fig = px.pie(
+            values=counts,
+            names=locations,
+            title='Reservations by Location'
+        )
+        
+        fig.update_layout(height=400)
+        return fig
+    
+    return None
+
 # Main application
 def main():
     st.title("📅 Time Reservation Management System")
@@ -261,7 +463,7 @@ def main():
     # Data input method selection
     data_input_method = st.sidebar.radio(
         "Data Input Method",
-        ["Use Default Data", "Upload CSV File", "Manual Input"]
+        ["Use Sample Data", "Upload CSV File", "Manual Input"]
     )
     
     data = DEFAULT_DATA.copy()
@@ -271,61 +473,80 @@ def main():
         if uploaded_file is not None:
             try:
                 df = pd.read_csv(uploaded_file)
-                if 'id' in df.columns and 'time' in df.columns:
+                required_columns = ['location', 'id', 'time']
+                if all(col in df.columns for col in required_columns):
                     data = df.to_dict('records')
                     st.sidebar.success(f"Loaded {len(data)} reservation records.")
                 else:
-                    st.sidebar.error("CSV file must contain 'id' and 'time' columns.")
+                    st.sidebar.error(f"CSV file must contain columns: {', '.join(required_columns)}")
             except Exception as e:
                 st.sidebar.error(f"File reading error: {e}")
     
     elif data_input_method == "Manual Input":
         st.sidebar.subheader("Add Reservation")
         with st.sidebar.form("add_reservation"):
-            new_id = st.number_input("Reservation ID", min_value=1, value=len(data)+1)
+            new_location = st.text_input("Location", value="Sample 1")
+            new_id = st.number_input("Reservation ID", min_value=1, value=int(4.2e8))
             new_time = st.time_input("Reservation Time")
             
             if st.form_submit_button("Add Reservation"):
                 data.append({
-                    'id': new_id,
+                    'location': new_location,
+                    'id': int(new_id),
                     'time': new_time.strftime("%H:%M")
                 })
                 st.sidebar.success("Reservation added.")
+                st.experimental_rerun()
+    
+    # Location filter
+    locations = sorted(list(set([item['location'] for item in data])))
+    selected_location = st.sidebar.selectbox(
+        "Filter by Location",
+        ["All Locations"] + locations
+    )
     
     # Data processing
-    time_slots, reservation_data = calculate_time_slots(data, start_hour, end_hour)
+    time_slots, reservation_data = calculate_time_slots(data, start_hour, end_hour, selected_location)
+    
+    # Show filtering info
+    total_filtered = len(reservation_data)
+    total_original = len([item for item in data if selected_location == "All Locations" or item['location'] == selected_location])
+    
+    if total_filtered < total_original:
+        filtered_out = total_original - total_filtered
+        st.info(f"ℹ️ {filtered_out} reservations are hidden (outside time range considering ±30min buffer)")
     
     # Display metrics
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        st.markdown("""
+        st.markdown(f"""
         <div class="metric-card">
             <h3 style="color: #4a90e2; margin: 0;">Total Reservations</h3>
-            <h2 style="margin: 0;">{}</h2>
+            <h2 style="margin: 0;">{len(reservation_data)}</h2>
         </div>
-        """.format(len(data)), unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
     
     with col2:
         max_overlap = max([slot['count'] for slot in time_slots]) if time_slots else 0
-        st.markdown("""
+        st.markdown(f"""
         <div class="metric-card">
             <h3 style="color: #f39c12; margin: 0;">Max Overlap</h3>
-            <h2 style="margin: 0;">{}</h2>
+            <h2 style="margin: 0;">{max_overlap}</h2>
         </div>
-        """.format(max_overlap), unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
     
     with col3:
-        total_occupied_slots = sum(1 for slot in time_slots if slot['count'] > 0)
-        st.markdown("""
+        unique_locations = len(set([item['location'] for item in reservation_data]))
+        st.markdown(f"""
         <div class="metric-card">
-            <h3 style="color: #27ae60; margin: 0;">Occupied Time Slots</h3>
-            <h2 style="margin: 0;">{}</h2>
+            <h3 style="color: #27ae60; margin: 0;">Active Locations</h3>
+            <h2 style="margin: 0;">{unique_locations}</h2>
         </div>
-        """.format(total_occupied_slots), unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
     
     # Create tabs
-    tab1, tab2, tab3 = st.tabs(["📊 Reservation Chart", "📈 Overlap Analysis", "📋 Reservation List"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 Reservation Chart", "📈 Overlap Analysis", "🏢 Location Summary", "📋 Reservation List"])
     
     with tab1:
         st.subheader("Reservation Status by Time Slot")
@@ -348,10 +569,20 @@ def main():
         </div>
         """, unsafe_allow_html=True)
         
-        # Heatmap chart
+        # Summary heatmap and location details
         if reservation_data:
-            fig = create_heatmap(time_slots, reservation_data)
-            st.plotly_chart(fig, use_container_width=True)
+            fig_summary, location_groups = create_heatmap(time_slots, reservation_data, selected_location)
+            st.plotly_chart(fig_summary, use_container_width=True)
+            
+            # Location details with expanders
+            sorted_locations = sorted(location_groups.keys())
+            for location in sorted_locations:
+                location_items = location_groups[location]
+                
+                with st.expander(f"🏢 {location} ({len(location_items)} reservations)", expanded=False):
+                    # Create detailed heatmap for this location
+                    fig_detail = create_location_detail_heatmap(location, location_items, time_slots)
+                    st.plotly_chart(fig_detail, use_container_width=True)
         else:
             st.info("No reservations to display.")
     
@@ -368,28 +599,59 @@ def main():
                 st.warning(f"⚠️ {len(high_overlap_slots)} time slots have 3 or more overlapping reservations.")
                 
                 for slot in high_overlap_slots[:5]:  # Display top 5 only
+                    reservation_details = []
+                    for res in slot['reservations']:
+                        reservation_details.append(f"ID {res['id']} ({res['location']})")
+                    
                     st.markdown(f"""
                     <div class="reservation-card">
                         <strong>{slot['time']}</strong>
                         <span class="overlap-badge">{slot['count']} Overlaps</span>
-                        <br><small>Reservation IDs: {', '.join(map(str, slot['reservations']))}</small>
+                        <br><small>Reservations: {', '.join(reservation_details)}</small>
                     </div>
                     """, unsafe_allow_html=True)
         else:
             st.info("No overlapping reservations.")
     
     with tab3:
+        st.subheader("Location Summary")
+        
+        location_fig = create_location_summary(reservation_data)
+        if location_fig:
+            st.plotly_chart(location_fig, use_container_width=True)
+            
+            # Location breakdown table
+            location_breakdown = {}
+            for item in reservation_data:
+                loc = item['location']
+                if loc not in location_breakdown:
+                    location_breakdown[loc] = []
+                location_breakdown[loc].append(item)
+            
+            for location, items in location_breakdown.items():
+                with st.expander(f"🏢 {location} ({len(items)} reservations)"):
+                    for item in sorted(items, key=lambda x: time_to_minutes(x['time'])):
+                        st.write(f"• ID {item['id']} at {item['time']}")
+        else:
+            st.info("No location data to display.")
+    
+    with tab4:
         st.subheader("All Reservations")
         
         if reservation_data:
-            for item in reservation_data:
+            # Sort reservations by location, then by time
+            sorted_reservations = sorted(reservation_data, 
+                                       key=lambda x: (x['location'], time_to_minutes(x['time'])))
+            
+            for item in sorted_reservations:
                 original_minutes = time_to_minutes(item['time'])
                 start_time = minutes_to_time(original_minutes - 30)
                 end_time = minutes_to_time(original_minutes + 30)
                 
                 st.markdown(f"""
                 <div class="reservation-card">
-                    <strong>Reservation #{item['id']}</strong>
+                    <span class="location-badge">{item['location']}</span>
+                    <strong>ID #{item['id']}</strong>
                     <span class="available-badge">Active</span>
                     <br>
                     <small>Reservation Time: {item['time']}</small>
@@ -399,41 +661,6 @@ def main():
                 """, unsafe_allow_html=True)
         else:
             st.info("No reservations.")
-    
-    # Data download
-    st.markdown("---")
-    st.subheader("📥 Data Download")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        if st.button("Download Reservations (CSV)", type="primary"):
-            df = pd.DataFrame(reservation_data)
-            csv = df.to_csv(index=False)
-            st.download_button(
-                label="Download CSV File",
-                data=csv,
-                file_name=f"reservations_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv"
-            )
-    
-    with col2:
-        if st.button("Download Time Slot Analysis (CSV)"):
-            slots_df = pd.DataFrame([
-                {
-                    'time': slot['time'],
-                    'overlap_count': slot['count'],
-                    'reservation_ids': ', '.join(map(str, slot['reservations'])) if slot['reservations'] else ''
-                }
-                for slot in time_slots if slot['count'] > 0
-            ])
-            csv = slots_df.to_csv(index=False)
-            st.download_button(
-                label="Download Analysis Results",
-                data=csv,
-                file_name=f"time_slot_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv"
-            )
 
 if __name__ == "__main__":
     main()
