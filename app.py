@@ -185,6 +185,30 @@ def calculate_time_slots(data, start_hour=8, end_hour=18, selected_location=None
     
     return time_slots, filtered_data
 
+def calculate_max_overlap_per_location(data, start_hour=8, end_hour=18):
+    """Calculate maximum overlap for each location separately"""
+    # Group data by location
+    location_groups = {}
+    for item in data:
+        location = item['location']
+        if location not in location_groups:
+            location_groups[location] = []
+        location_groups[location].append(item)
+    
+    max_overlaps = {}
+    
+    # Calculate max overlap for each location
+    for location, location_data in location_groups.items():
+        # Create time slots for this location only
+        time_slots, _ = calculate_time_slots(location_data, start_hour, end_hour)
+        
+        # Find maximum overlap for this location
+        max_overlap = max([slot['count'] for slot in time_slots]) if time_slots else 0
+        max_overlaps[location] = max_overlap
+    
+    # Return the overall maximum across all locations
+    return max(max_overlaps.values()) if max_overlaps else 0
+
 def create_heatmap(time_slots, data, selected_location=None):
     """Create heatmap chart grouped by location with expandable details"""
     # Prepare time-based data
@@ -198,8 +222,10 @@ def create_heatmap(time_slots, data, selected_location=None):
             location_groups[location] = []
         location_groups[location].append(item)
     
-    # Sort locations alphabetically
-    sorted_locations = sorted(location_groups.keys())
+    # Sort locations by number of reservations (descending)
+    sorted_locations = sorted(location_groups.keys(), 
+                            key=lambda loc: len(location_groups[loc]), 
+                            reverse=True)
     
     # Create summary heatmap (only totals)
     z_data_summary = []
@@ -225,7 +251,7 @@ def create_heatmap(time_slots, data, selected_location=None):
         z_data_summary.append(location_total_row)
         y_labels_summary.append(f"🏢 {location} ({len(location_items)} reservations)")
     
-    # Create summary heatmap
+    # Create summary heatmap (reverse y-axis order to show highest count first)
     fig_summary = go.Figure(data=go.Heatmap(
         z=z_data_summary,
         x=times,
@@ -280,13 +306,17 @@ def create_heatmap(time_slots, data, selected_location=None):
             dtick=3  # Display at 30-minute intervals
         ),
         yaxis=dict(
-            tickfont=dict(size=11)
+            tickfont=dict(size=11),
+            autorange='reversed'  # Reverse y-axis to show highest count at top
         ),
         margin=dict(l=250, r=50, t=50, b=100),
         showlegend=False
     )
     
-    return fig_summary, location_groups
+    # Return sorted location groups to maintain order
+    sorted_location_groups = {loc: location_groups[loc] for loc in sorted_locations}
+    
+    return fig_summary, sorted_location_groups
 
 def create_location_detail_heatmap(location, location_items, time_slots):
     """Create detailed heatmap for a specific location"""
@@ -528,7 +558,8 @@ def main():
         """, unsafe_allow_html=True)
     
     with col2:
-        max_overlap = max([slot['count'] for slot in time_slots]) if time_slots else 0
+        # Calculate max overlap per location separately
+        max_overlap = calculate_max_overlap_per_location(reservation_data, start_hour, end_hour)
         st.markdown(f"""
         <div class="metric-card">
             <h3 style="color: #f39c12; margin: 0;">Max Overlap</h3>
@@ -574,11 +605,9 @@ def main():
             fig_summary, location_groups = create_heatmap(time_slots, reservation_data, selected_location)
             st.plotly_chart(fig_summary, use_container_width=True)
             
-            # Location details with expanders
-            sorted_locations = sorted(location_groups.keys())
-            for location in sorted_locations:
+            # Location details with expanders (maintain same order as summary chart)
+            for location in location_groups.keys():  # location_groups is already sorted
                 location_items = location_groups[location]
-                
                 with st.expander(f"🏢 {location} ({len(location_items)} reservations)", expanded=False):
                     # Create detailed heatmap for this location
                     fig_detail = create_location_detail_heatmap(location, location_items, time_slots)
@@ -620,7 +649,7 @@ def main():
         if location_fig:
             st.plotly_chart(location_fig, use_container_width=True)
             
-            # Location breakdown table
+            # Location breakdown table - sorted by reservation count
             location_breakdown = {}
             for item in reservation_data:
                 loc = item['location']
@@ -628,7 +657,13 @@ def main():
                     location_breakdown[loc] = []
                 location_breakdown[loc].append(item)
             
-            for location, items in location_breakdown.items():
+            # Sort locations by reservation count (descending)
+            sorted_locations_summary = sorted(location_breakdown.keys(), 
+                                            key=lambda loc: len(location_breakdown[loc]), 
+                                            reverse=True)
+            
+            for location in sorted_locations_summary:
+                items = location_breakdown[location]
                 with st.expander(f"🏢 {location} ({len(items)} reservations)"):
                     for item in sorted(items, key=lambda x: time_to_minutes(x['time'])):
                         st.write(f"• ID {item['id']} at {item['time']}")
